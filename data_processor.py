@@ -1,36 +1,40 @@
 import pandas as pd
+import pickle
 
-def preprocess_data(input_file, output_file):
-    # Load dataset
-    df = pd.read_csv(input_file)
+# Load raw data
+df = pd.read_csv("raw_data_2.csv")
 
-    # Drop 'Count of Disease Occurrence' if it exists
-    if 'Count of Disease Occurrence' in df.columns:
-        df.drop(columns=['Count of Disease Occurrence'], inplace=True)
+# Drop unnecessary columns
+df.drop(columns=["Count of Disease Occurrence"], inplace=True, errors="ignore")
 
-    # Forward fill missing disease values
-    df['Disease'] = df['Disease'].ffill()
+# Forward fill missing diseases (assuming symptoms below a disease belong to it)
+df["Disease"] = df["Disease"].ffill()
 
-    # Group symptoms under each disease
-    df_grouped = df.groupby('Disease')['Symptom'].apply(list).reset_index()
+# Remove duplicate symptom entries for each disease
+df.drop_duplicates(inplace=True)
 
-    # Remove duplicate symptoms per disease
-    df_grouped['Symptom'] = df_grouped['Symptom'].apply(lambda x: list(set(str(symptom) for symptom in x if pd.notna(symptom))))
+# Group symptoms per disease
+df_grouped = df.groupby("Disease")["Symptom"].apply(set).reset_index()
 
-    # One-hot encode symptoms
-    all_symptoms = sorted(set(symptom for symptoms in df_grouped['Symptom'] for symptom in symptoms))
-    df_encoded = pd.DataFrame(0, index=df_grouped.index, columns=all_symptoms)
-    for i, symptoms in enumerate(df_grouped['Symptom']):
-        df_encoded.loc[i, symptoms] = 1
+# Convert symptoms to strings & remove NaNs
+df_grouped["Symptom"] = df_grouped["Symptom"].apply(lambda x: [str(s) for s in x if pd.notna(s)])
 
-    # Add Disease column back
-    df_final = pd.concat([df_grouped['Disease'], df_encoded], axis=1)
+# One-hot encode symptoms
+all_symptoms = sorted(set(symptom for symptoms in df_grouped["Symptom"] for symptom in symptoms))
+df_encoded = pd.DataFrame(0, index=df_grouped.index, columns=all_symptoms)
 
-    # Save processed data
-    df_final.to_csv(output_file, index=False)
-    print(f"Preprocessed data saved to {output_file}")
+for i, symptoms in enumerate(df_grouped["Symptom"]):
+    df_encoded.loc[i, list(symptoms)] = 1  # Use list() to prevent reindexing errors
 
-# Example usage
-input_file = r"D:\project\raw_data_2.csv"  # Use raw string
-output_file = r"D:\project\processed_data.csv"
-preprocess_data(input_file, output_file)
+# Add Disease column back
+df_final = pd.concat([df_grouped["Disease"], df_encoded], axis=1)
+
+# Save processed dataset
+df_final.to_csv("processed_data.csv", index=False)
+
+# Save feature names for later use
+feature_names = list(df_encoded.columns)
+with open("feature_names.pkl", "wb") as f:
+    pickle.dump(feature_names, f)
+
+print("✅ Data processing complete! Processed data saved as 'processed_data.csv'.")
